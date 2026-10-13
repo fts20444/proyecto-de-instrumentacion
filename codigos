@@ -1,0 +1,109 @@
+# 1 Implementar el conteo de pulsos recibidos de un circuito con antirrebote (debouce) por hardware y software y mostrarlo en el monitor serial.
+  const int BOTON = 4;
+
+unsigned long contadorPulsos = 0;
+int estadoAnterior = HIGH;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(BOTON, INPUT_PULLUP);
+
+  Serial.println("=== ESP32: MONITOR DE PULSOS ===");
+  Serial.println("Boton conectado al GPIO 4");
+  Serial.println("Presiona el boton para generar pulsos.");
+}
+
+void loop() {
+  int estadoActual = digitalRead(BOTON);
+
+  // Detectar una pulsacion
+  if (estadoAnterior == HIGH && estadoActual == LOW) {
+    contadorPulsos++;
+
+    Serial.print("PULSO DETECTADO: ");
+    Serial.println(contadorPulsos);
+  }
+
+  estadoAnterior = estadoActual;
+  delay(20); // Antirrebote sencillo
+}
+# 2 Implementar un botón con el antibounce ya sea por hardware o software que se creo en el punto anterior donde genere una interrupción y se mida el tiempo pasado entre pulsos y lo muestre por el monitor serial.
+  // Variables compartidas entre interrupcion y programa
+volatile unsigned long ultimoTiempo = 0;
+volatile unsigned long intervalo = 0;
+volatile unsigned long contadorPulsos = 0;
+volatile bool nuevoPulso = false;
+
+// Antirrebote: 200 milisegundos
+const unsigned long ANTIRREBOTE_US = 200000;
+
+// Funcion de interrupcion
+void IRAM_ATTR interrupcionBoton() {
+  unsigned long ahora = micros();
+
+  // Ignorar rebotes y medir intervalo entre pulsos
+  if (ahora - ultimoTiempo >= ANTIRREBOTE_US) {
+
+    if (ultimoTiempo != 0) {
+      intervalo = ahora - ultimoTiempo;
+      nuevoPulso = true;
+    }
+
+    ultimoTiempo = ahora;
+    contadorPulsos++;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(BOTON, INPUT_PULLUP);
+
+  attachInterrupt(
+    digitalPinToInterrupt(BOTON),
+    interrupcionBoton,
+    FALLING
+  );
+
+  Serial.println();
+  Serial.println("=== TIMER POR INTERRUPCIONES ===");
+  Serial.println("ESP32 iniciado correctamente");
+  Serial.println("Boton conectado al GPIO 4");
+  Serial.println("Presiona el boton varias veces.");
+  Serial.println("--------------------------------");
+}
+
+void loop() {
+  unsigned long tiempoMedido = 0;
+  unsigned long totalPulsos = 0;
+  bool mostrar = false;
+
+  // Copiar datos protegidos de la interrupcion
+  noInterrupts();
+
+  if (nuevoPulso) {
+    tiempoMedido = intervalo;
+    totalPulsos = contadorPulsos;
+    nuevoPulso = false;
+    mostrar = true;
+  }
+
+  interrupts();
+
+  // Mostrar resultados fuera de la interrupcion
+  if (mostrar) {
+    Serial.print("Pulso numero: ");
+    Serial.println(totalPulsos);
+
+    Serial.print("Tiempo entre pulsos: ");
+    Serial.print(tiempoMedido);
+    Serial.println(" microsegundos");
+
+    Serial.print("Tiempo entre pulsos: ");
+    Serial.print(tiempoMedido / 1000.0, 2);
+    Serial.println(" milisegundos");
+
+    Serial.println("--------------------------------");
+  }
+}
