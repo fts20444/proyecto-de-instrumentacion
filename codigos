@@ -107,3 +107,206 @@ void loop() {
     Serial.println("--------------------------------");
   }
 }
+# 3  Realizar la lectura de dos LDR mediante las entradas analógicas del sistema embebido, escalar los valores obtenidos para calcular la resistencia de cada sensor y determinar la posición del foco de luz. Presentar esta información a través del monitor serial y/o el graficador serial, e implementar una alarma visual mediante un LED por cada LDR que indique cuándo la luz se concentra más en un lado o en el otro.
+const int LDR_IZQUIERDO = 34;
+const int LDR_DERECHO = 35;
+
+const int LED_IZQUIERDO = 18;
+const int LED_DERECHO = 19;
+
+const float VCC = 3.3;
+const float RESISTENCIA_FIJA = 10000.0;
+
+// Diferencia minima para detectar un lado con mas luz
+const int UMBRAL = 100;
+
+float calcularResistencia(float voltaje) {
+  if (voltaje <= 0.0) {
+    return INFINITY;
+  }
+
+  if (voltaje >= VCC) {
+    return 0.0;
+  }
+
+  // LDR conectado a 3V3 y resistencia fija a GND
+  return RESISTENCIA_FIJA * (VCC / voltaje - 1.0);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  analogReadResolution(12);
+
+  analogSetPinAttenuation(LDR_IZQUIERDO, ADC_11db);
+  analogSetPinAttenuation(LDR_DERECHO, ADC_11db);
+
+  pinMode(LED_IZQUIERDO, OUTPUT);
+  pinMode(LED_DERECHO, OUTPUT);
+
+  Serial.println("================================");
+  Serial.println(" SISTEMA DE DOS SENSORES LDR");
+  Serial.println(" Placa ESP32");
+  Serial.println("================================");
+}
+
+void loop() {
+  int lecturaIzq = analogRead(LDR_IZQUIERDO);
+  int lecturaDer = analogRead(LDR_DERECHO);
+
+  // Medicion de voltaje en milivoltios
+  float voltajeIzq =
+      analogReadMilliVolts(LDR_IZQUIERDO) / 1000.0;
+
+  float voltajeDer =
+      analogReadMilliVolts(LDR_DERECHO) / 1000.0;
+
+  float resistenciaIzq = calcularResistencia(voltajeIzq);
+  float resistenciaDer = calcularResistencia(voltajeDer);
+
+  Serial.println("\n-------------------------------");
+
+  Serial.print("ADC izquierdo: ");
+  Serial.println(lecturaIzq);
+
+  Serial.print("Voltaje izquierdo: ");
+  Serial.print(voltajeIzq, 3);
+  Serial.println(" V");
+
+  Serial.print("Resistencia izquierda: ");
+  Serial.print(resistenciaIzq, 0);
+  Serial.println(" ohmios");
+
+  Serial.print("ADC derecho: ");
+  Serial.println(lecturaDer);
+
+  Serial.print("Voltaje derecho: ");
+  Serial.print(voltajeDer, 3);
+  Serial.println(" V");
+
+  Serial.print("Resistencia derecha: ");
+  Serial.print(resistenciaDer, 0);
+  Serial.println(" ohmios");
+
+  int diferencia = lecturaIzq - lecturaDer;
+
+  if (diferencia > UMBRAL) {
+    digitalWrite(LED_IZQUIERDO, HIGH);
+    digitalWrite(LED_DERECHO, LOW);
+
+    Serial.println("RESULTADO: MAS LUZ A LA IZQUIERDA");
+  }
+  else if (diferencia < -UMBRAL) {
+    digitalWrite(LED_IZQUIERDO, LOW);
+    digitalWrite(LED_DERECHO, HIGH);
+
+    Serial.println("RESULTADO: MAS LUZ A LA DERECHA");
+  }
+  else {
+    digitalWrite(LED_IZQUIERDO, LOW);
+    digitalWrite(LED_DERECHO, LOW);
+
+    Serial.println("RESULTADO: ILUMINACION SIMILAR");
+  }
+
+  delay(1000);
+}
+# 4  Implementar una salida analógica con PWM en el mismo sistema embebido que utiliza una entrada analógica, con el fin de controlar la posición de un servo de 180° o 90° según la dirección del foco de luz detectado en el punto anterior. Además, se debe imprimir por el monitor serial y/o el graficador serial el valor de resistencia de cada LDR junto con una estimación del ángulo correspondiente a la posición del servo en función de la luz detectada.
+#include <Arduino.h>
+#include <ESP32Servo.h>
+
+// Pines de los sensores LDR
+const int LDR_IZQUIERDO = 34;
+const int LDR_DERECHO   = 35;
+
+// Pin de señal del servomotor
+const int PIN_SERVO = 18;
+
+// Resistencia fija de cada divisor (ohmios)
+const float R_FIJA = 10000.0;
+
+// Parámetros del servo
+const int ANGULO_MIN = 0;
+const int ANGULO_MAX = 180;
+const int ANGULO_CENTRO = 90;
+
+// Ajustar según las lecturas reales de los sensores
+const int DIFERENCIA_MAX = 1500;
+
+Servo servo;
+
+int anguloActual = 90;
+
+void setup() {
+  Serial.begin(115200);
+
+  analogReadResolution(12);  // ADC de 0 a 4095
+
+  servo.setPeriodHertz(50);
+  servo.attach(PIN_SERVO, 500, 2400);
+  servo.write(ANGULO_CENTRO);
+
+  delay(500);
+
+  Serial.println("Sistema de seguimiento de luz con ESP32");
+  Serial.println("LDR izquierdo | LDR derecho | R izquierda | R derecha | Angulo");
+}
+
+float calcularResistencia(int lectura) {
+  // Evita la division por cero
+  if (lectura <= 0) {
+    return -1.0;
+  }
+
+  // LDR conectado a 3.3 V y resistencia fija a GND
+  return R_FIJA * (4095.0 / lectura - 1.0);
+}
+
+void loop() {
+  // Leer los sensores
+  int lecturaIzquierda = analogRead(LDR_IZQUIERDO);
+  int lecturaDerecha = analogRead(LDR_DERECHO);
+
+  // Calcular resistencias aproximadas
+  float resistenciaIzquierda =
+      calcularResistencia(lecturaIzquierda);
+
+  float resistenciaDerecha =
+      calcularResistencia(lecturaDerecha);
+
+  // Diferencia entre las lecturas de iluminación
+  int diferencia = lecturaIzquierda - lecturaDerecha;
+
+  // Convertir la diferencia en un angulo entre 0 y 180
+  int anguloObjetivo = map(
+      constrain(diferencia, -DIFERENCIA_MAX, DIFERENCIA_MAX),
+      -DIFERENCIA_MAX,
+      DIFERENCIA_MAX,
+      ANGULO_MIN,
+      ANGULO_MAX
+  );
+
+  // Suavizar el movimiento del servomotor
+  anguloActual = (anguloActual * 7 + anguloObjetivo) / 8;
+
+  servo.write(anguloActual);
+
+  // Mostrar resultados en el monitor serial
+  Serial.print(lecturaIzquierda);
+  Serial.print("\t\t");
+
+  Serial.print(lecturaDerecha);
+  Serial.print("\t\t");
+
+  Serial.print(resistenciaIzquierda);
+  Serial.print(" ohm\t");
+
+  Serial.print(resistenciaDerecha);
+  Serial.print(" ohm\t");
+
+  Serial.print(anguloActual);
+  Serial.println(" grados");
+
+  delay(100);
+}
+
