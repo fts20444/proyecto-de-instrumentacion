@@ -1,0 +1,286 @@
+# ejercicion  1  Diseña un programa para el ESP32 que permita crear un juego interactivo de “Adivinar el número” usando comunicación UART. El sistema debe iniciar solicitando al usuario, por medio del puerto serial, los valores mínimo y máximo del rango donde se generará un número aleatorio. Luego, el jugador deberá enviar intentos por UART para descubrir cuál es el número secreto y si no lo adivina indicar si es menor o mayor.
+String entrada;
+
+int minimo, maximo, numeroSecreto, intento;
+bool esperandoMinimo = true;
+bool esperandoMaximo = false;
+bool esperandoIntento = false;
+
+bool esNumero(String texto) {
+  if (texto.length() == 0) return false;
+
+  int inicio = 0;
+  if (texto[0] == '-' || texto[0] == '+') inicio = 1;
+  if (inicio == texto.length()) return false;
+
+  for (int i = inicio; i < texto.length(); i++) {
+    if (!isDigit(texto[i])) return false;
+  }
+  return true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  randomSeed(micros());
+
+  Serial.println();
+  Serial.println("==================================");
+  Serial.println(" JUEGO: ADIVINAR EL NUMERO");
+  Serial.println(" Comunicacion UART - ESP32");
+  Serial.println("==================================");
+  Serial.println("Ingresa el valor MINIMO:");
+}
+
+void loop() {
+  if (Serial.available() <= 0) return;
+
+  entrada = Serial.readStringUntil('\n');
+  entrada.trim();
+
+  if (entrada.length() == 0) return;
+
+  if (!esNumero(entrada)) {
+    Serial.println("ERROR: ingresa un numero entero.");
+    return;
+  }
+
+  long valor = entrada.toInt();
+
+  if (valor < -2147483647L || valor > 2147483647L) {
+    Serial.println("ERROR: numero fuera de rango.");
+    return;
+  }
+
+  if (esperandoMinimo) {
+    minimo = (int)valor;
+
+    esperandoMinimo = false;
+    esperandoMaximo = true;
+
+    Serial.print("Minimo ingresado: ");
+    Serial.println(minimo);
+    Serial.println("Ingresa el valor MAXIMO:");
+  }
+  else if (esperandoMaximo) {
+    maximo = (int)valor;
+
+    if (maximo <= minimo) {
+      Serial.println("ERROR: el maximo debe ser mayor que el minimo.");
+      Serial.println("Ingresa nuevamente el MAXIMO:");
+      return;
+    }
+
+    if ((long long)maximo - minimo > 2147483646LL) {
+      Serial.println("ERROR: el rango es demasiado grande.");
+      Serial.println("Ingresa otro valor MAXIMO:");
+      return;
+    }
+
+    Serial.println();
+    Serial.println("===== RANGO CONFIGURADO =====");
+
+    Serial.print("Minimo: ");
+    Serial.println(minimo);
+
+    Serial.print("Maximo: ");
+    Serial.println(maximo);
+
+    Serial.print("Rango permitido: [");
+    Serial.print(minimo);
+    Serial.print(" - ");
+    Serial.print(maximo);
+    Serial.println("]");
+
+    Serial.print("Cantidad de numeros posibles: ");
+    Serial.println((long long)maximo - minimo + 1);
+
+    numeroSecreto = (int)random(
+      (long)minimo, (long)maximo + 1L
+    );
+
+    esperandoMaximo = false;
+    esperandoIntento = true;
+
+    Serial.println("==============================");
+    Serial.println("Numero secreto generado.");
+    Serial.println("Adivina el numero:");
+  }
+  else if (esperandoIntento) {
+    intento = (int)valor;
+
+    Serial.println();
+    Serial.println("===== NUEVO INTENTO =====");
+
+    Serial.print("Rango permitido: [");
+    Serial.print(minimo);
+    Serial.print(" - ");
+    Serial.print(maximo);
+    Serial.println("]");
+
+    Serial.print("Tu intento: ");
+    Serial.println(intento);
+
+    if (intento < minimo || intento > maximo) {
+      Serial.println("Fuera del rango permitido.");
+    }
+    else if (intento < numeroSecreto) {
+      Serial.println("PISTA: el numero secreto es MAYOR.");
+    }
+    else if (intento > numeroSecreto) {
+      Serial.println("PISTA: el numero secreto es MENOR.");
+    }
+    else {
+      Serial.println("FELICIDADES! ADIVINASTE.");
+      Serial.print("Numero secreto: ");
+      Serial.println(numeroSecreto);
+
+      esperandoIntento = false;
+      esperandoMinimo = true;
+
+      Serial.println();
+      Serial.println("Nueva partida.");
+      Serial.println("Ingresa el valor MINIMO:");
+    }
+
+    Serial.println("=========================");
+  }
+}
+
+# ejercicio 2 
+
+#include <WiFi.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <time.h>
+
+// Datos de tu Wi-Fi
+const char* ssid = "S23 de Franco";
+const char* password = "Franco45127";
+
+// Pantalla LCD I2C
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Pines ESP32
+const int SDA_PIN = 21;
+const int SCL_PIN = 22;
+const int POT_PIN = 34;
+
+// Hora de Colombia: UTC-5
+const long GMT_OFFSET = -5 * 3600;
+const int DAYLIGHT_OFFSET = 0;
+
+// ADC de 12 bits
+const int ADC_MAX = 4095;
+const float VOLTAJE_REFERENCIA = 3.3;
+
+unsigned long ultimoCambio = 0;
+bool mostrarVoltaje = false;
+
+void setup() {
+  Serial.begin(115200);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  lcd.init();
+  lcd.backlight();
+
+  analogReadResolution(12);
+  analogSetPinAttenuation(POT_PIN, ADC_11db);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Conectando WiFi");
+
+  WiFi.begin(ssid, password);
+
+  int intentos = 0;
+  while (WiFi.status() != WL_CONNECTED && intentos < 30) {
+    delay(500);
+    intentos++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(GMT_OFFSET, DAYLIGHT_OFFSET,
+               "pool.ntp.org", "time.nist.gov");
+    lcd.clear();
+    lcd.print("WiFi conectado");
+    Serial.println("WiFi conectado");
+  } else {
+    lcd.clear();
+    lcd.print("Error de WiFi");
+    Serial.println("No se pudo conectar al WiFi");
+  }
+
+  delay(1500);
+  lcd.clear();
+}
+
+void loop() {
+  // Leer potenciometro
+  int valorADC = analogRead(POT_PIN);
+
+  // Calcular voltaje estimado y porcentaje
+  float voltaje = (valorADC / (float)ADC_MAX) *
+                  VOLTAJE_REFERENCIA;
+  int porcentaje = map(valorADC, 0, ADC_MAX, 0, 100);
+
+  // Obtener hora actual
+  struct tm hora;
+  bool horaValida = getLocalTime(&hora, 100);
+
+  lcd.setCursor(0, 0);
+
+  if (horaValida) {
+    char textoHora[9];
+    strftime(textoHora, sizeof(textoHora), "%H:%M:%S", &hora);
+    lcd.print("Hora: ");
+    lcd.print(textoHora);
+    lcd.print("  ");
+  } else {
+    lcd.print("Hora: --:--:--  ");
+  }
+
+  // Alternar la segunda fila para mostrar ambos datos
+  if (millis() - ultimoCambio >= 1500) {
+    ultimoCambio = millis();
+    mostrarVoltaje = !mostrarVoltaje;
+  }
+
+  lcd.setCursor(0, 1);
+  if (mostrarVoltaje) {
+    lcd.print("Voltaje:");
+    lcd.print(voltaje, 2);
+    lcd.print(" V   ");
+  } else {
+    lcd.print("ADC:");
+    lcd.print(valorADC);
+    lcd.print(" ");
+    lcd.print(porcentaje);
+    lcd.print("%    ");
+  }
+
+  // Mostrar todos los datos en el Monitor serie
+  Serial.print("Hora: ");
+  if (horaValida) {
+    char textoHora[9];
+    strftime(textoHora, sizeof(textoHora), "%H:%M:%S", &hora);
+    Serial.print(textoHora);
+  } else {
+    Serial.print("No sincronizada");
+  }
+
+  Serial.print(" | ADC: ");
+  Serial.print(valorADC);
+
+  Serial.print(" | Porcentaje: ");
+  Serial.print(porcentaje);
+  Serial.print("%");
+
+  Serial.print(" | Voltaje estimado: ");
+  Serial.print(voltaje, 3);
+  Serial.println(" V");
+
+  delay(500);
+}
+
+# ejercicio 3
+
+
