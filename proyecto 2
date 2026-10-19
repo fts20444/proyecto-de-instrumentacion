@@ -146,7 +146,7 @@ void loop() {
   }
 }
 
-# ejercicio 2 
+# ejercicio 2 Implementar un código que permita visualizar los datos de un reloj digital y el valor de un potenciómetro al mismo tiempo en el display I2C
 
 #include <WiFi.h>
 #include <Wire.h>
