@@ -281,6 +281,198 @@ void loop() {
   delay(500);
 }
 
-# ejercicio 3
+# ejercicio 3 implementar un código que permita obtener el valor de presión barométrica y temperatura del sensor BMP280 y visualizarlos mediante el monitor serial o la pantalla LCD (Se deja a consideración de cada grupo).
 
 
+#include <SPI.h>
+#include <Wire.h>
+#include <math.h>
+#include <Adafruit_BMP280.h>
+#include <LiquidCrystal_I2C.h>
+
+// ===== PINES DEL ESP32 =====
+
+// BMP280 por SPI
+#define PIN_SCK   18
+#define PIN_MISO  19
+#define PIN_MOSI  23
+#define PIN_CS     5
+
+// LCD por I2C
+#define PIN_SDA_LCD 21
+#define PIN_SCL_LCD 22
+
+// ===== CONFIGURACION =====
+
+// Direccion I2C habitual del LCD
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// BMP280 con SPI por hardware
+Adafruit_BMP280 bmp(PIN_CS, &SPI);
+
+// Altitud inicial: Manizales, aproximada, en metros
+float altitud = 2150.0;
+
+// Control de lectura
+unsigned long tiempoAnterior = 0;
+const unsigned long intervalo = 2000;
+
+// ===== FUNCION PARA LEER ALTITUD =====
+
+void leerComandoSerial() {
+  if (Serial.available() > 0) {
+    String comando = Serial.readStringUntil('\n');
+    comando.trim();
+
+    comando.replace(',', '.');
+
+    float nuevaAltitud = comando.toFloat();
+
+    // Validacion basica: altitud entre -500 y 9000 m
+    if (nuevaAltitud >= -500.0 &&
+        nuevaAltitud <= 9000.0) {
+
+      altitud = nuevaAltitud;
+
+      Serial.print("Nueva altitud configurada: ");
+      Serial.print(altitud, 1);
+      Serial.println(" m");
+
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Altitud ajustada");
+      lcd.setCursor(0, 1);
+      lcd.print(altitud, 0);
+      lcd.print(" metros");
+      delay(1200);
+
+    } else {
+      Serial.println(
+        "Altitud invalida. Escribe un valor entre -500 y 9000."
+      );
+    }
+  }
+}
+
+// ===== CONFIGURACION INICIAL =====
+
+void setup() {
+  Serial.begin(115200);
+  Serial.setTimeout(100);
+
+  delay(1000);
+
+  // Inicializar LCD
+  Wire.begin(PIN_SDA_LCD, PIN_SCL_LCD);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Iniciando...");
+  lcd.setCursor(0, 1);
+  lcd.print("ESP32 + BMP280");
+
+  // Inicializar bus SPI
+  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
+
+  // Inicializar BMP280
+  if (!bmp.begin()) {
+    Serial.println("ERROR: No se detecta el BMP280.");
+    Serial.println("Revisa alimentacion, pines SPI y CSB.");
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Error BMP280");
+    lcd.setCursor(0, 1);
+    lcd.print("Revisar conexion");
+
+    while (true) {
+      delay(1000);
+    }
+  }
+
+  // Configuracion de muestreo del sensor
+  bmp.setSampling(
+    Adafruit_BMP280::MODE_NORMAL,
+    Adafruit_BMP280::SAMPLING_X2,
+    Adafruit_BMP280::SAMPLING_X16,
+    Adafruit_BMP280::FILTER_X16,
+    Adafruit_BMP280::STANDBY_MS_500
+  );
+
+  Serial.println();
+  Serial.println("Sistema iniciado correctamente.");
+  Serial.println("ESP32 + BMP280 SPI + LCD I2C");
+  Serial.println();
+  Serial.println("Escribe la altitud en metros y pulsa Enter.");
+  Serial.println("Ejemplos:");
+  Serial.println("0    = nivel del mar");
+  Serial.println("1000 = altitud de 1000 metros");
+  Serial.println("1500 = altitud aproximada de Medellin");
+  Serial.println("2150 = altitud aproximada de Manizales");
+  Serial.println("2640 = altitud aproximada de Bogota");
+  Serial.println();
+
+  delay(1500);
+  lcd.clear();
+}
+
+// ===== BUCLE PRINCIPAL =====
+
+void loop() {
+  leerComandoSerial();
+
+  if (millis() - tiempoAnterior >= intervalo) {
+    tiempoAnterior = millis();
+
+    // Leer sensor
+    float temperatura = bmp.readTemperature();
+    float presionLocal = bmp.readPressure() / 100.0F;
+
+    // Validar las lecturas
+    if (isnan(temperatura) || isnan(presionLocal) ||
+        presionLocal <= 0) {
+      Serial.println("Error al leer el BMP280.");
+      return;
+    }
+
+    // Estimar presion corregida al nivel del mar
+    float presionNivelMar = presionLocal /
+      pow(1.0 - altitud / 44330.0, 5.255);
+
+    // Mostrar en monitor serial
+    Serial.println("--------------------------");
+
+    Serial.print("Temperatura: ");
+    Serial.print(temperatura, 1);
+    Serial.println(" C");
+
+    Serial.print("Presion local: ");
+    Serial.print(presionLocal, 1);
+    Serial.println(" hPa");
+
+    Serial.print("Altitud configurada: ");
+    Serial.print(altitud, 1);
+    Serial.println(" m");
+
+    Serial.print("Presion estimada al nivel del mar: ");
+    Serial.print(presionNivelMar, 1);
+    Serial.println(" hPa");
+
+    // Mostrar temperatura en la primera fila del LCD
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(temperatura, 1);
+    lcd.print((char)223);
+    lcd.print("C    ");
+
+    // Mostrar presion local en la segunda fila
+    lcd.setCursor(0, 1);
+    lcd.print("Pres:");
+    lcd.print(presionLocal, 1);
+    lcd.print(" hPa ");
+
+    // La presion corregida se consulta en el monitor serial.
+  }
+}
